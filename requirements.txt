@@ -1,0 +1,12 @@
+speechrecognition  
+pyttsx3  
+groq  
+pyautogui  
+opencv-python  
+mediapipe  
+requests  
+pillow  
+face-recognition  
+cryptography  
+flask  
+sqlite3 
