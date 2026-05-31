@@ -31,17 +31,22 @@ class FaceAuth:
         
         print("✅ Face authentication ready!")
 
+    # ============================================
+    # PRELOAD DEEPFACE
+    # ============================================
     def _preload_deepface(self):
         print("🧠 Loading face recognition model...")
         try:
             from deepface import DeepFace
             self.deepface = DeepFace
-            # Warm up the model
             DeepFace.build_model("VGG-Face")
             print("✅ Face model loaded!")
         except Exception as e:
             print(f"❌ Model load error: {e}")
 
+    # ============================================
+    # LOAD OWNER FACES
+    # ============================================
     def _load_owner_faces(self):
         face_data_path = "data/owner_face.pkl"
         if os.path.exists(face_data_path):
@@ -52,6 +57,9 @@ class FaceAuth:
         else:
             print("⚠️ No face data found! Run face_setup.py first!")
 
+    # ============================================
+    # VERIFY FACE
+    # ============================================
     def verify_face(self, frame):
         if not self.deepface:
             return False, 0
@@ -89,6 +97,9 @@ class FaceAuth:
             print(f"❌ Verification error: {e}")
             return False, 0
 
+    # ============================================
+    # START WATCHING
+    # ============================================
     def start_watching(self, on_stranger=None, on_owner=None):
         self.on_stranger_detected = on_stranger
         self.on_owner_detected = on_owner
@@ -101,6 +112,9 @@ class FaceAuth:
         thread.start()
         print("👁️ Face authentication is watching...")
 
+    # ============================================
+    # WATCH LOOP
+    # ============================================
     def _watch_loop(self):
         cap = cv2.VideoCapture(0)
         if not cap.isOpened():
@@ -135,7 +149,6 @@ class FaceAuth:
                     
                     if is_owner:
                         self.owner_count += 1
-                        self.stranger_count = 0
                         print(f"✅ Owner vote: {self.owner_count}/2")
                         
                         if self.owner_count >= 2 and not self.owner_verified:
@@ -143,21 +156,25 @@ class FaceAuth:
                             self.owner_verified = True
                             self.stranger_detected = False
                             self.owner_count = 0
+                            self.stranger_count = 0
                             if self.on_owner_detected:
                                 self.on_owner_detected()
                     else:
-                        self.stranger_count += 1
-                        self.owner_count = 0
-                        print(f"⚠️ Stranger vote: {self.stranger_count}/3")
-                        
-                        if self.stranger_count >= 3 and not self.stranger_detected:
-                            print("🚨 STRANGER CONFIRMED!")
-                            self.stranger_detected = True
-                            self.owner_verified = False
-                            self.stranger_count = 0
-                            self._save_stranger_photo(frame)
-                            if self.on_stranger_detected:
-                                self.on_stranger_detected(frame)
+                        # Only count stranger if owner not verified
+                        if not self.owner_verified:
+                            self.stranger_count += 1
+                            print(f"⚠️ Stranger vote: {self.stranger_count}/3")
+                            
+                            if self.stranger_count >= 3 and not self.stranger_detected:
+                                print("🚨 STRANGER CONFIRMED!")
+                                self.stranger_detected = True
+                                self.owner_verified = False
+                                self.stranger_count = 0
+                                self._save_stranger_photo(frame)
+                                if self.on_stranger_detected:
+                                    self.on_stranger_detected(frame)
+                        else:
+                            print(f"✅ Owner still verified!")
                 else:
                     self.owner_count = max(0, self.owner_count - 1)
                     self.stranger_count = max(0, self.stranger_count - 1)
@@ -166,6 +183,9 @@ class FaceAuth:
         
         cap.release()
 
+    # ============================================
+    # SAVE STRANGER PHOTO
+    # ============================================
     def _save_stranger_photo(self, frame):
         strangers_dir = "data/recordings"
         os.makedirs(strangers_dir, exist_ok=True)
@@ -175,11 +195,17 @@ class FaceAuth:
         print(f"📸 Stranger photo saved: {photo_path}")
         return photo_path
 
+    # ============================================
+    # STOP WATCHING
+    # ============================================
     def stop_watching(self):
         self.is_running = False
         print("🛑 Face authentication stopped!")
 
 
+# ============================================
+# TEST
+# ============================================
 if __name__ == "__main__":
     print("🔱 Testing Face Authentication...")
     

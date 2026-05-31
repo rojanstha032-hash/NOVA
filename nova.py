@@ -14,6 +14,7 @@ from senses.voice_input import NovaEars
 from senses.voice_output import NovaMouth
 from actions.desktop import DesktopController
 from actions.nova_email import NovaEmail
+from security.face_auth import FaceAuth
 from nova_ui import NovaUI
 import config
 
@@ -37,12 +38,18 @@ class Nova:
         print("📧 Loading email system...")
         self.email_system = NovaEmail()
         
+        print("👤 Loading face authentication...")
+        self.face_auth = FaceAuth()
+        
         print("🖥️ Loading UI...")
         self.ui = NovaUI()
         
-        # Connect UI to Nova's processor
+        # Connect UI
         self.ui.brain = self.brain
         self.ui._process_input = self._on_text_command
+        
+        # Security state
+        self.is_locked = False
         
         print("=" * 50)
         print(f"✅ Nova is fully online!")
@@ -53,6 +60,10 @@ class Nova:
     # ON VOICE COMMAND
     # ============================================
     def _on_voice_command(self, text):
+        if self.is_locked:
+            print("🔒 Nova is locked!")
+            return
+            
         print(f"🎙️ Voice command: {text}")
         
         self.ui.root.after(0,
@@ -72,7 +83,8 @@ class Nova:
     # ON TEXT COMMAND
     # ============================================
     def _on_text_command(self, text):
-        print(f"⌨️ Text command: {text}")
+        if self.is_locked:
+            return
         threading.Thread(
             target=self._process_command,
             args=(text,),
@@ -91,7 +103,7 @@ class Nova:
         
         text_lower = text.lower()
         
-        # ---- Special commands ----
+        # Special commands
         if any(word in text_lower for word in ["exit nova", "shutdown nova", "goodbye nova"]):
             self._shutdown()
             return
@@ -101,19 +113,19 @@ class Nova:
             self._respond("Memory cleared! Starting fresh.")
             return
 
-        # ---- Try email commands first ----
+        # Email commands
         email_result = self.email_system.process_command(text)
         if email_result:
             self._respond(email_result)
             return
 
-        # ---- Try desktop commands ----
+        # Desktop commands
         desktop_result = self.desktop.process_command(text)
         if desktop_result:
             self._respond(desktop_result)
             return
 
-        # ---- Send to AI brain ----
+        # AI brain
         response = self.brain.think(text)
         self._respond(response)
 
@@ -121,7 +133,6 @@ class Nova:
     # RESPOND
     # ============================================
     def _respond(self, response):
-        # Show in UI
         self.ui.root.after(0,
             self.ui.add_message,
             config.NOVA_NAME,
@@ -129,27 +140,71 @@ class Nova:
             "nova"
         )
         
-        # Update status
         self.ui.root.after(0,
             self.ui.update_status,
             "🔊 Speaking... (talk to interrupt!)",
             "#00aaff"
         )
         
-        # Start interruption listener
-        self.ears.listen_while_speaking(self.mouth)
+        # Pause listening while speaking
+        self.ears.is_processing = True
         
-        # Speak response
+        self.ears.listen_while_speaking(self.mouth)
         self.mouth.speak(response)
         
-        # Reset interrupted flag
+        # Resume listening
+        self.ears.is_processing = False
         self.ears.interrupted = False
         
-        # Reset status
         self.ui.root.after(0,
             self.ui.update_status,
             "💤 Idle — Say 'Hey Nova' or type below",
             "#555555"
+        )
+
+    # ============================================
+    # ON OWNER DETECTED
+    # ============================================
+    def _on_owner_detected(self):
+        print(f"👤 Owner detected!")
+        self.is_locked = False
+        
+        self.ui.root.after(0,
+            self.ui.update_status,
+            f"👤 {config.OWNER_NAME} verified!",
+            "#00ff88"
+        )
+        
+        threading.Thread(
+            target=self.mouth.speak,
+            args=(f"Welcome back {config.OWNER_NAME}!",),
+            daemon=True
+        ).start()
+
+    # ============================================
+    # ON STRANGER DETECTED
+    # ============================================
+    def _on_stranger_detected(self, frame):
+        print("🚨 STRANGER DETECTED!")
+        self.is_locked = True
+        
+        self.ui.root.after(0,
+            self.ui.update_status,
+            "🚨 INTRUDER DETECTED! Nova locked!",
+            "#ff0000"
+        )
+        
+        threading.Thread(
+            target=self.mouth.speak,
+            args=("Warning! Unauthorized access detected! This incident has been recorded!",),
+            daemon=True
+        ).start()
+        
+        self.ui.root.after(0,
+            self.ui.add_message,
+            "⚠️ SECURITY",
+            "🚨 Stranger detected! Nova is locked. Photo saved to recordings folder!",
+            "nova"
         )
 
     # ============================================
@@ -159,6 +214,7 @@ class Nova:
         print("👋 Nova shutting down...")
         self.mouth.speak("Goodbye! Shutting down now.")
         self.ears.stop_listening()
+        self.face_auth.stop_watching()
         self.brain.long_memory.end_session()
         time.sleep(2)
         self.ui.root.destroy()
@@ -170,30 +226,29 @@ class Nova:
     def run(self):
         greeting = f"Hello {config.OWNER_NAME}! Nova is online and ready. How can I help you today?"
         
-        # Show greeting in UI
         self.ui.add_message(config.NOVA_NAME, greeting, "nova")
         
-        # Speak greeting in background
         threading.Thread(
             target=self.mouth.speak,
             args=(greeting,),
             daemon=True
         ).start()
         
-        # Start voice listening
         threading.Thread(
             target=self.ears.start_continuous_listening,
             args=(self._on_voice_command,),
             daemon=True
         ).start()
         
-        # Start UI
+        threading.Thread(
+            target=self.face_auth.start_watching,
+            args=(self._on_stranger_detected, self._on_owner_detected),
+            daemon=True
+        ).start()
+        
         self.ui.run()
 
 
-# ============================================
-# START NOVA
-# ============================================
 if __name__ == "__main__":
     nova = Nova()
     nova.run()

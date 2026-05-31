@@ -13,8 +13,9 @@ import config
 
 class NovaEars:
     def __init__(self):
-        # ---- Main recognizer ----
         self.recognizer = sr.Recognizer()
+        
+        # ---- Stop Nova cutting you off ----
         self.recognizer.pause_threshold = 2.0
         self.recognizer.phrase_threshold = 0.3
         self.recognizer.non_speaking_duration = 1.5
@@ -67,7 +68,6 @@ class NovaEars:
 
     # ============================================
     # LISTEN WHILE SPEAKING
-    # Uses separate microphone instance!
     # ============================================
     def listen_while_speaking(self, mouth):
         def _interrupt_loop():
@@ -85,9 +85,7 @@ class NovaEars:
                             print(f"🛑 Interrupted! You said: {text}")
                             self.interrupted = True
                             mouth.stop()
-                            
                             time.sleep(0.5)
-                            
                             if self.on_speech_detected:
                                 self.on_speech_detected(text.lower())
                             break
@@ -138,6 +136,11 @@ class NovaEars:
                 if config.CONVERSATION_MODE:
                     if len(text.split()) < 2:
                         continue
+                    
+                    # ---- Ignore if Nova is speaking ----
+                    if self.is_processing:
+                        continue
+                    
                     print(f"✅ Command: {text}")
                     self._handle_command(text)
                     
@@ -183,7 +186,6 @@ class NovaEars:
 if __name__ == "__main__":
     print("🔱 Testing Nova's Ears...")
     ears = NovaEars()
-    
     print("\nSay something!")
     result = ears.listen_once()
     if result:
