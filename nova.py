@@ -13,6 +13,7 @@ from brain.ai_core import NovaBrain
 from senses.voice_input import NovaEars
 from senses.voice_output import NovaMouth
 from actions.desktop import DesktopController
+from actions.nova_email import NovaEmail
 from nova_ui import NovaUI
 import config
 
@@ -32,6 +33,9 @@ class Nova:
         
         print("🖥️ Loading desktop controller...")
         self.desktop = DesktopController()
+        
+        print("📧 Loading email system...")
+        self.email_system = NovaEmail()
         
         print("🖥️ Loading UI...")
         self.ui = NovaUI()
@@ -97,7 +101,13 @@ class Nova:
             self._respond("Memory cleared! Starting fresh.")
             return
 
-        # ---- Try desktop commands first ----
+        # ---- Try email commands first ----
+        email_result = self.email_system.process_command(text)
+        if email_result:
+            self._respond(email_result)
+            return
+
+        # ---- Try desktop commands ----
         desktop_result = self.desktop.process_command(text)
         if desktop_result:
             self._respond(desktop_result)
@@ -122,12 +132,18 @@ class Nova:
         # Update status
         self.ui.root.after(0,
             self.ui.update_status,
-            "🔊 Speaking...",
+            "🔊 Speaking... (talk to interrupt!)",
             "#00aaff"
         )
         
+        # Start interruption listener
+        self.ears.listen_while_speaking(self.mouth)
+        
         # Speak response
         self.mouth.speak(response)
+        
+        # Reset interrupted flag
+        self.ears.interrupted = False
         
         # Reset status
         self.ui.root.after(0,

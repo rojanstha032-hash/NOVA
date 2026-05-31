@@ -13,16 +13,27 @@ import config
 
 class NovaEars:
     def __init__(self):
+        # ---- Main recognizer ----
         self.recognizer = sr.Recognizer()
-        self.microphone = sr.Microphone()
-        self.listen_timeout = 5
-        self.phrase_timeout = 10
+        self.recognizer.pause_threshold = 2.0
+        self.recognizer.phrase_threshold = 0.3
+        self.recognizer.non_speaking_duration = 1.5
+        
+        # ---- Separate recognizer for interruptions ----
+        self.interrupt_recognizer = sr.Recognizer()
+        self.interrupt_recognizer.pause_threshold = 0.5
+        self.interrupt_recognizer.non_speaking_duration = 0.3
+        
+        # ---- Settings ----
+        self.listen_timeout = 8
+        self.phrase_timeout = 20
         self.is_listening = False
         self.is_processing = False
+        self.interrupted = False
         self.on_speech_detected = None
         
         print("🎙️ Calibrating microphone for background noise...")
-        with self.microphone as source:
+        with sr.Microphone() as source:
             self.recognizer.adjust_for_ambient_noise(source, duration=1)
         print("✅ Microphone ready!")
 
@@ -30,7 +41,7 @@ class NovaEars:
     # LISTEN ONCE
     # ============================================
     def listen_once(self):
-        with self.microphone as source:
+        with sr.Microphone() as source:
             print("🎙️ Listening...")
             try:
                 audio = self.recognizer.listen(
@@ -50,6 +61,47 @@ class NovaEars:
             except sr.RequestError as e:
                 print(f"❌ Speech service error: {e}")
                 return None
+            except Exception as e:
+                print(f"❌ Listen error: {e}")
+                return None
+
+    # ============================================
+    # LISTEN WHILE SPEAKING
+    # Uses separate microphone instance!
+    # ============================================
+    def listen_while_speaking(self, mouth):
+        def _interrupt_loop():
+            while mouth.is_speaking:
+                try:
+                    with sr.Microphone() as source:
+                        audio = self.interrupt_recognizer.listen(
+                            source,
+                            timeout=2,
+                            phrase_time_limit=5
+                        )
+                        text = self.interrupt_recognizer.recognize_google(audio)
+                        
+                        if text and len(text.split()) >= 1:
+                            print(f"🛑 Interrupted! You said: {text}")
+                            self.interrupted = True
+                            mouth.stop()
+                            
+                            time.sleep(0.5)
+                            
+                            if self.on_speech_detected:
+                                self.on_speech_detected(text.lower())
+                            break
+                            
+                except sr.WaitTimeoutError:
+                    continue
+                except sr.UnknownValueError:
+                    continue
+                except Exception:
+                    time.sleep(0.1)
+                    continue
+        
+        thread = threading.Thread(target=_interrupt_loop, daemon=True)
+        thread.start()
 
     # ============================================
     # START CONTINUOUS LISTENING
@@ -72,7 +124,7 @@ class NovaEars:
         
         while self.is_listening:
             try:
-                # Wait if Nova is processing
+                # Wait if Nova is processing or speaking
                 if self.is_processing:
                     time.sleep(0.5)
                     continue
@@ -84,7 +136,6 @@ class NovaEars:
 
                 # ---- CONVERSATION MODE ----
                 if config.CONVERSATION_MODE:
-                    # Ignore very short words (noise)
                     if len(text.split()) < 2:
                         continue
                     print(f"✅ Command: {text}")
@@ -95,7 +146,6 @@ class NovaEars:
                     if wake_word in text:
                         print("🔱 Wake word detected!")
                         command = text.replace(wake_word, "").strip()
-                        
                         if command:
                             self._handle_command(command)
                         else:
@@ -104,7 +154,8 @@ class NovaEars:
                                 self._handle_command(command)
                                 
             except Exception as e:
-                print(f"❌ Listening error: {e}")
+                print(f"❌ Loop error: {e}")
+                time.sleep(0.5)
                 continue
 
     # ============================================
@@ -112,11 +163,11 @@ class NovaEars:
     # ============================================
     def _handle_command(self, command):
         self.is_processing = True
+        self.interrupted = False
         
         if self.on_speech_detected:
             self.on_speech_detected(command)
         
-        # Wait for Nova to finish speaking
         time.sleep(1)
         self.is_processing = False
         print("🎙️ Ready for next command!")
@@ -129,9 +180,6 @@ class NovaEars:
         print("🛑 Nova stopped listening!")
 
 
-# ============================================
-# TEST
-# ============================================
 if __name__ == "__main__":
     print("🔱 Testing Nova's Ears...")
     ears = NovaEars()
