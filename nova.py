@@ -12,6 +12,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from brain.ai_core import NovaBrain
 from senses.voice_input import NovaEars
 from senses.voice_output import NovaMouth
+from actions.desktop import DesktopController
 from nova_ui import NovaUI
 import config
 
@@ -29,6 +30,9 @@ class Nova:
         print("🔊 Loading voice...")
         self.mouth = NovaMouth()
         
+        print("🖥️ Loading desktop controller...")
+        self.desktop = DesktopController()
+        
         print("🖥️ Loading UI...")
         self.ui = NovaUI()
         
@@ -43,12 +47,10 @@ class Nova:
 
     # ============================================
     # ON VOICE COMMAND
-    # Called when Nova hears your voice
     # ============================================
     def _on_voice_command(self, text):
         print(f"🎙️ Voice command: {text}")
         
-        # Show in UI
         self.ui.root.after(0,
             self.ui.add_message,
             config.OWNER_NAME,
@@ -56,12 +58,14 @@ class Nova:
             "user"
         )
         
-        # Process command
-        self._process_command(text)
+        threading.Thread(
+            target=self._process_command,
+            args=(text,),
+            daemon=True
+        ).start()
 
     # ============================================
     # ON TEXT COMMAND
-    # Called when you type in the UI
     # ============================================
     def _on_text_command(self, text):
         print(f"⌨️ Text command: {text}")
@@ -73,7 +77,6 @@ class Nova:
 
     # ============================================
     # PROCESS COMMAND
-    # Sends to brain and responds
     # ============================================
     def _process_command(self, text):
         self.ui.root.after(0,
@@ -84,7 +87,7 @@ class Nova:
         
         text_lower = text.lower()
         
-        # Special commands
+        # ---- Special commands ----
         if any(word in text_lower for word in ["exit nova", "shutdown nova", "goodbye nova"]):
             self._shutdown()
             return
@@ -94,13 +97,18 @@ class Nova:
             self._respond("Memory cleared! Starting fresh.")
             return
 
-        # Send to AI
+        # ---- Try desktop commands first ----
+        desktop_result = self.desktop.process_command(text)
+        if desktop_result:
+            self._respond(desktop_result)
+            return
+
+        # ---- Send to AI brain ----
         response = self.brain.think(text)
         self._respond(response)
 
     # ============================================
     # RESPOND
-    # Shows in UI and speaks
     # ============================================
     def _respond(self, response):
         # Show in UI
@@ -118,7 +126,7 @@ class Nova:
             "#00aaff"
         )
         
-        # Speak (blocking — waits until done)
+        # Speak response
         self.mouth.speak(response)
         
         # Reset status
@@ -135,6 +143,7 @@ class Nova:
         print("👋 Nova shutting down...")
         self.mouth.speak("Goodbye! Shutting down now.")
         self.ears.stop_listening()
+        self.brain.long_memory.end_session()
         time.sleep(2)
         self.ui.root.destroy()
         sys.exit(0)
@@ -166,6 +175,9 @@ class Nova:
         self.ui.run()
 
 
+# ============================================
+# START NOVA
+# ============================================
 if __name__ == "__main__":
     nova = Nova()
     nova.run()
