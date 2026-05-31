@@ -1,9 +1,6 @@
 # ============================================
 # NOVA - AI Brain (ai_core.py)
 # ============================================
-# Supports multiple AI providers!
-# Switch between Groq and Gemini in config.py
-# ============================================
 
 import sys
 import os
@@ -23,38 +20,38 @@ class NovaBrain:
         - Speak naturally and conversationally
         - Be concise — no long unnecessary answers
         - Be proactive — suggest things when relevant
-        - Remember you can control the computer, send emails, manage files
-        - If asked to do something on the computer, confirm before doing it
-        
-        Always respond in plain text — no markdown, no bullet points.
-        Keep responses short unless asked for detail.
+        - You have a long term memory — use it to personalize responses
+        - If you learn something about {config.OWNER_NAME}, remember it
+        - Always respond in plain text — no markdown, no bullet points
+        - Keep responses short unless asked for detail
         """
         
-        # ---- Load the right AI provider ----
+        # ---- Load AI provider ----
         if config.AI_PROVIDER == "gemini":
             self._init_gemini()
         else:
             self._init_groq()
             
+        # ---- Load memory ----
+        from memory.long_term import LongTermMemory
+        from memory.short_term import ShortTermMemory
+        self.long_memory = LongTermMemory()
+        self.short_memory = ShortTermMemory()
+        self.long_memory.start_session()
+            
         print(f"✅ {config.NOVA_NAME}'s brain is online!")
         print(f"🧠 Using: {config.AI_PROVIDER.upper()}")
 
-    # ============================================
-    # INIT GROQ
-    # ============================================
     def _init_groq(self):
         from groq import Groq
         self.client = Groq(api_key=config.GROQ_API_KEY)
         self.provider = "groq"
         
-    # ============================================
-    # INIT GEMINI
-    # ============================================
     def _init_gemini(self):
         import google.generativeai as genai
         genai.configure(api_key=config.GEMINI_API_KEY)
         self.gemini_model = genai.GenerativeModel(
-            model_name="gllama-3.3-70b-versatile",
+            model_name="gemini-2.0-flash",
             system_instruction=self.system_prompt
         )
         self.gemini_chat = self.gemini_model.start_chat(history=[])
@@ -62,27 +59,47 @@ class NovaBrain:
 
     # ============================================
     # THINK
+    # Now uses memory context!
     # ============================================
-    def think(self, user_input, memory_context=""):
-        full_input = user_input
-        if memory_context:
-            full_input = f"[Memory Context: {memory_context}]\n\nUser says: {user_input}"
+    def think(self, user_input):
+        # ---- Get memory context ----
+        long_memory_context = self.long_memory.get_memory_context()
+        short_memory_context = self.short_memory.get_context()
+        
+        # ---- Build full context ----
+        memory_context = ""
+        if long_memory_context:
+            memory_context += f"Long term memory:\n{long_memory_context}\n\n"
+        if short_memory_context:
+            memory_context += f"Current conversation:\n{short_memory_context}"
+
+        # ---- Save user message to memory ----
+        self.long_memory.save_conversation(config.OWNER_NAME, user_input)
+        self.short_memory.add(config.OWNER_NAME, user_input)
 
         try:
             if self.provider == "gemini":
-                return self._think_gemini(full_input)
+                response = self._think_gemini(user_input, memory_context)
             else:
-                return self._think_groq(full_input)
+                response = self._think_groq(user_input, memory_context)
+                
+            # ---- Save Nova's response to memory ----
+            self.long_memory.save_conversation(config.NOVA_NAME, response)
+            self.short_memory.add(config.NOVA_NAME, response)
+            
+            return response
+            
         except Exception as e:
             return f"Sorry, I had a brain glitch: {str(e)}"
 
-    # ============================================
-    # THINK WITH GROQ
-    # ============================================
-    def _think_groq(self, user_input):
+    def _think_groq(self, user_input, memory_context=""):
+        full_input = user_input
+        if memory_context:
+            full_input = f"[Memory Context:\n{memory_context}]\n\nUser: {user_input}"
+            
         self.conversation_history.append({
             "role": "user",
-            "content": user_input
+            "content": full_input
         })
         
         if len(self.conversation_history) > config.MAX_MEMORY_CONTEXT:
@@ -107,26 +124,20 @@ class NovaBrain:
         
         return nova_response
 
-    # ============================================
-    # THINK WITH GEMINI
-    # ============================================
-    def _think_gemini(self, user_input):
-        response = self.gemini_chat.send_message(user_input)
+    def _think_gemini(self, user_input, memory_context=""):
+        full_input = user_input
+        if memory_context:
+            full_input = f"[Memory Context:\n{memory_context}]\n\nUser: {user_input}"
+        response = self.gemini_chat.send_message(full_input)
         return response.text
 
-    # ============================================
-    # CLEAR MEMORY
-    # ============================================
     def clear_memory(self):
         self.conversation_history = []
+        self.short_memory.clear()
         if self.provider == "gemini":
             self.gemini_chat = self.gemini_model.start_chat(history=[])
         print("🧹 Memory cleared!")
 
-    # ============================================
-    # SWITCH PROVIDER
-    # Switch between Groq and Gemini on the fly!
-    # ============================================
     def switch_provider(self, provider):
         if provider == "gemini":
             self._init_gemini()
@@ -135,11 +146,8 @@ class NovaBrain:
         print(f"🔄 Switched to {provider.upper()}!")
 
 
-# ============================================
-# TEST
-# ============================================
 if __name__ == "__main__":
-    print("🔱 Testing Nova's Brain...")
+    print("🔱 Testing Nova's Brain with Memory...")
     brain = NovaBrain()
     
     while True:
