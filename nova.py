@@ -15,6 +15,7 @@ from senses.voice_output import NovaMouth
 from actions.desktop import DesktopController
 from actions.nova_email import NovaEmail
 from security.face_auth import FaceAuth
+from remote.server import start_server
 from nova_ui import NovaUI
 import config
 
@@ -54,6 +55,7 @@ class Nova:
         print("=" * 50)
         print(f"✅ Nova is fully online!")
         print(f"💬 Say 'Hey Nova' or type in the window!")
+        print(f"📱 Remote: http://{config.TAILSCALE_IP}:{config.REMOTE_PORT}")
         print("=" * 50)
 
     # ============================================
@@ -246,6 +248,14 @@ class Nova:
             daemon=True
         ).start()
         
+        # Start remote access server
+        threading.Thread(
+            target=start_server,
+            args=(self,),
+            daemon=True
+        ).start()
+        
+        # Start UI
         self.ui.run()
 
 
